@@ -87,6 +87,8 @@ DISPLAY_NAMES: dict[str, str] = {
     "aiv_fanduel": "Amazon - FanDuel Sports Network",
     "aiv_paramount_plus": "Amazon - Paramount+",
     "aiv_willow": "Amazon - Willow TV",
+    "aiv_blue_jackets_hockey_network": "Amazon - Blue Jackets Hockey Network",
+    "aiv_mw_plus": "Amazon - MW+",
     "aiv_free": "Amazon - Free with Ads",
     "aiv_squash": "Amazon - SquashTV",
     "aiv_mlbtv": "Amazon - MLB.TV",
@@ -220,6 +222,8 @@ INTERNAL_PRIORITY: dict[str, int] = {
     "aiv_mlb_network": 22,
     "aiv_paramount_plus": 22,
     "aiv_willow": 22,
+    "aiv_blue_jackets_hockey_network": 22,
+    "aiv_mw_plus": 22,
     "aiv_squash": 22,
     "nflctv": 22,
     "watchtru": 23,
@@ -329,6 +333,8 @@ DEFAULT_USER_PRIORITY: dict[str, int] = {
     "aiv_mlb_network": 14,
     "aiv_paramount_plus": 13,
     "aiv_willow": 12,
+    "aiv_blue_jackets_hockey_network": 12,
+    "aiv_mw_plus": 12,
     "aiv_wnba_league_pass": 12,
     "aiv_squash": 11,
     "aiv": 10,
@@ -371,6 +377,9 @@ LEGACY_SERVICE_ALIASES: dict[str, str] = {
     # channel_id verbatim; alias it to the stable aiv_free code so
     # already-cached data doesn't need a rescrape to match user filters.
     "aiv_watch_for_free": "aiv_free",
+    "aiv_free_trial_of_blue_jackets_hockey_network": "aiv_blue_jackets_hockey_network",
+    "aiv_free_trial_of_mw": "aiv_mw_plus",
+    "aiv_free_trial_of_bein_sports_connect": "aiv_bein",
 }
 
 

@@ -9,6 +9,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "bin"))
 
 import migrate_amazon_logical_services as mals  # noqa: E402
 import filter_integration  # noqa: E402
+from core.service_catalog import get_canonical_service_code  # noqa: E402
 
 
 def _gti(label: str) -> str:
@@ -89,6 +90,30 @@ class ResolveChannelAmbiguityTest(unittest.TestCase):
         )
         self.assertEqual(result["channel_id"], "aiv_prime")
 
+    def test_old_offer_slug_maps_to_provider_without_changing_other_channels(self):
+        self.assertEqual(
+            mals.normalize_service(
+                "aiv_free_trial_of_blue_jackets_hockey_network",
+                "Free trial of Blue Jackets Hockey Network",
+            ),
+            "aiv_blue_jackets_hockey_network",
+        )
+        self.assertEqual(
+            get_canonical_service_code("aiv_free_trial_of_blue_jackets_hockey_network"),
+            "aiv_blue_jackets_hockey_network",
+        )
+        self.assertEqual(mals.normalize_service("aiv_willow", "Willow TV"), "aiv_willow")
+        self.assertEqual(
+            mals.normalize_service("aiv_free_trial_of_mw", "Free trial of MW+"),
+            "aiv_mw_plus",
+        )
+        self.assertEqual(get_canonical_service_code("aiv_free_trial_of_mw"), "aiv_mw_plus")
+        self.assertEqual(
+            mals.normalize_service("aiv_free_trial_of_bein_sports_connect", "Free trial of beIN SPORTS CONNECT"),
+            "aiv_bein",
+        )
+        self.assertEqual(mals.normalize_service("aiv_aggregator", "Ambiguous Amazon offer"), "aiv_aggregator")
+
     def test_prefers_non_stale_broadcast_over_stale(self):
         by_gti = {
             "broadcast-a": _row("broadcast-a", "aiv_dazn", "DAZN", is_stale=1),
@@ -156,6 +181,105 @@ class MigrateEndToEndTest(unittest.TestCase):
         ).fetchone()
         conn.close()
         return row["logical_service"] if row else None
+
+    def test_legacy_blue_jackets_row_and_registry_upgrade_without_rescrape(self):
+        content_gti = _gti("blue-jackets-content")
+        broadcast_gti = _gti("blue-jackets-broadcast")
+        self._insert_playable("blue-jackets-event", broadcast_gti, content_gti)
+        self._insert_amazon_channel(
+            broadcast_gti,
+            "aiv_free_trial_of_blue_jackets_hockey_network",
+            "Free trial of Blue Jackets Hockey Network",
+        )
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE amazon_services (
+                service_id TEXT PRIMARY KEY, display_name TEXT,
+                amazon_channel_id TEXT, logical_service TEXT, updated_utc TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO amazon_services (service_id, display_name, amazon_channel_id, logical_service) "
+            "VALUES (?, ?, ?, ?)",
+            (
+                "aiv_free_trial_of_blue_jackets_hockey_network",
+                "Amazon - Free trial of Blue Jackets Hockey Network",
+                "nhlcolumbusbluejackets",
+                "aiv_free_trial_of_blue_jackets_hockey_network",
+            ),
+        )
+        conn.commit()
+        conn.close()
+
+        mals.migrate(self.db_path)
+        self.assertEqual(
+            self._logical_service_for(broadcast_gti),
+            "aiv_blue_jackets_hockey_network",
+        )
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(
+            conn.execute("SELECT service_id, logical_service FROM amazon_services").fetchone(),
+            ("aiv_blue_jackets_hockey_network", "aiv_blue_jackets_hockey_network"),
+        )
+        conn.close()
+
+    def test_legacy_mw_row_and_registry_upgrade_without_rescrape(self):
+        content_gti = _gti("mw-content")
+        broadcast_gti = _gti("mw-broadcast")
+        self._insert_playable("mw-event", broadcast_gti, content_gti)
+        self._insert_amazon_channel(broadcast_gti, "aiv_free_trial_of_mw", "Free trial of MW+")
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE amazon_services (
+                service_id TEXT PRIMARY KEY, display_name TEXT,
+                amazon_channel_id TEXT, logical_service TEXT, updated_utc TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO amazon_services (service_id, display_name, amazon_channel_id, logical_service) "
+            "VALUES ('aiv_free_trial_of_mw', 'Amazon - Free trial of MW+', "
+            "'mountainwestplus', 'aiv_free_trial_of_mw')"
+        )
+        conn.commit()
+        conn.close()
+
+        mals.migrate(self.db_path)
+        self.assertEqual(self._logical_service_for(broadcast_gti), "aiv_mw_plus")
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(
+            conn.execute("SELECT service_id, logical_service FROM amazon_services").fetchone(),
+            ("aiv_mw_plus", "aiv_mw_plus"),
+        )
+        conn.close()
+
+    def test_legacy_bein_registry_upgrade(self):
+        content_gti = _gti("bein-content")
+        broadcast_gti = _gti("bein-broadcast")
+        self._insert_playable("bein-event", broadcast_gti, content_gti)
+        self._insert_amazon_channel(broadcast_gti, "aiv_bein", "beIN Sports Connect")
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE amazon_services (
+                service_id TEXT PRIMARY KEY, display_name TEXT,
+                amazon_channel_id TEXT, logical_service TEXT, updated_utc TEXT
+            )
+        """)
+        conn.execute(
+            "INSERT INTO amazon_services (service_id, display_name, amazon_channel_id, logical_service) "
+            "VALUES ('aiv_free_trial_of_bein_sports_connect', 'Amazon - Free trial of beIN SPORTS CONNECT', "
+            "'beinus', 'aiv_free_trial_of_bein_sports_connect')"
+        )
+        conn.commit()
+        conn.close()
+
+        mals.migrate(self.db_path)
+        self.assertEqual(self._logical_service_for(broadcast_gti), "aiv_bein")
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(
+            conn.execute("SELECT service_id, logical_service FROM amazon_services").fetchone(),
+            ("aiv_bein", "aiv_bein"),
+        )
+        conn.close()
 
     def test_prime_free_feed_no_longer_inherits_sibling_willow_classification(self):
         content_gti = _gti("content-cricket-match")

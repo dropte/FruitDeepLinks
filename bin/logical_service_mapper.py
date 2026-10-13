@@ -27,6 +27,7 @@ try:
         INTERNAL_PRIORITY as _PRIORITY_MAP,
         get_display_name as get_service_display_name,
         get_internal_priority as get_logical_service_priority,
+        get_canonical_service_code,
     )
     _CATALOG_AVAILABLE = True
 except ImportError:
@@ -81,6 +82,8 @@ if not _CATALOG_AVAILABLE:
         'aiv_tennis_channel': 'Amazon - Tennis Channel', 'aiv_fanduel': 'Amazon - FanDuel Sports Network',
         'aiv_max': 'Amazon - Max', 'aiv_paramount_plus': 'Amazon - Paramount+',
         'aiv_willow': 'Amazon - Willow TV', 'aiv_wnba_league_pass': 'Amazon - WNBA League Pass',
+        'aiv_blue_jackets_hockey_network': 'Amazon - Blue Jackets Hockey Network',
+        'aiv_mw_plus': 'Amazon - MW+',
         'aiv_squash': 'Amazon - SquashTV', 'aiv_free': 'Amazon - Free with Ads',
         'aiv_aggregator': 'Amazon - Unknown', 'https': 'Web - Other', 'http': 'Web - Other',
     }
@@ -219,7 +222,7 @@ def get_amazon_service_for_playable(
         cur.close()
         
         if row and row[0]:
-            return row[0]
+            return get_canonical_service_code(row[0]) if _CATALOG_AVAILABLE else row[0]
     except Exception as e:
         # Silently fail if amazon_channels not available
         # This allows graceful degradation for deployments without scraper
@@ -418,7 +421,7 @@ def get_all_logical_services_with_counts(conn: sqlite3.Connection) -> Dict[str, 
         
         # Use stored logical_service if available, otherwise calculate it
         if logical_service:
-            service_code = logical_service
+            service_code = get_canonical_service_code(logical_service) if _CATALOG_AVAILABLE else logical_service
         else:
             service_code = get_logical_service_for_playable(
                 provider=provider,

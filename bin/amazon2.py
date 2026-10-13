@@ -76,6 +76,10 @@ BENEFIT_MAP: Dict[str, Tuple[str, str]] = {
     "foxoneus": ("FOX One", "aiv_fox_one"),
     "beinus": ("beIN Sports Connect", "aiv_bein"),
     "mlbnetwork": ("MLB Network", "aiv_mlb_network"),
+    # Observed on eight Blue Jackets feeds across three scrape runs. The offer
+    # text says "Free trial" for an unsubscribed page, but the provider is stable.
+    "nhlcolumbusbluejackets": ("Blue Jackets Hockey Network", "aiv_blue_jackets_hockey_network"),
+    "mountainwestplus": ("MW+", "aiv_mw_plus"),
     "cbsaacf": ("Paramount+", "aiv_paramount_plus"),
     "cbsaapc": ("Paramount+", "aiv_paramount_plus"),
 }
@@ -103,6 +107,13 @@ TEXT_INFER: List[Tuple[re.Pattern, Tuple[str, str]]] = [
     (re.compile(r"\bPeacock\b", re.I), ("Peacock", "aiv_peacock")),
     (re.compile(r"\bMax\b", re.I), ("Max", "aiv_max")),
     (re.compile(r"\bDAZN\b", re.I), ("DAZN", "aiv_dazn")),
+    (re.compile(r"^\s*Free trial of beIN SPORTS CONNECT\s*$", re.I),
+     ("beIN Sports Connect", "aiv_bein")),
+    (re.compile(r"^\s*(?:Free trial of Blue Jackets Hockey Network|"
+                r"Included with your Blue Jackets Hockey Network subscription)\s*$", re.I),
+     ("Blue Jackets Hockey Network", "aiv_blue_jackets_hockey_network")),
+    (re.compile(r"^\s*(?:Free trial of MW\+|Included with your MW\+ subscription)\s*$", re.I),
+     ("MW+", "aiv_mw_plus")),
     (re.compile(r"\bFanDuel Sports Network\b", re.I), ("FanDuel Sports Network", "aiv_fanduel")),
     (re.compile(r"\bViX Premium\b", re.I), ("ViX Premium", "aiv_vix_premium")),
     (re.compile(r"\bViX\b", re.I), ("ViX", "aiv_vix")),
@@ -441,6 +452,26 @@ def _normalize(benefit_id: str, entitlement: str) -> Tuple[str, str, str]:
     if benefit_id in BENEFIT_MAP:
         name, sid = BENEFIT_MAP[benefit_id]
         return name, sid, ""
+
+    # A scoped buy-box message can still list alternatives. Without a recognized
+    # benefit ID, choosing the first service name in "X or Y" would assign a
+    # sibling offer to this playable (observed for Paramount+/Peacock and ViX/Max).
+    if re.search(r"\s+or\s+", entitlement or "", re.I):
+        return "Ambiguous Amazon offer", "aiv_aggregator", (
+            f"AMBIGUOUS_ENTITLEMENT benefit_id={benefit_id}"
+        )
+
+    # These messages describe an offer, not a unique provider. With no ID,
+    # "Join Prime" / "Watch for free" still support their existing fallback;
+    # with a new, unrecognized ID they could also belong to DAZN, Paramount+,
+    # or ViX, as seen in the scrape data. Prices likewise identify no channel.
+    if benefit_id and re.fullmatch(
+        r"\s*(?:Join Prime|Watch for free|Free with ads|Subscribe for \$[\d.,]+/month)\s*",
+        entitlement or "", re.I,
+    ):
+        return "Unidentified Amazon offer", "aiv_aggregator", (
+            f"UNIDENTIFIED_ENTITLEMENT benefit_id={benefit_id}"
+        )
 
     # Infer only from the narrow entitlement message -- see TEXT_INFER comment above for why
     # full page-text scanning was removed.
@@ -1185,7 +1216,8 @@ def upsert_results(db_path: str, results: Sequence[ScrapeResult]) -> int:
             # AUTO-REGISTER NEW SERVICE IN amazon_services TABLE
             # This ensures discovered services automatically appear in filters
             # Skip auto-registration for unknown/error services
-            if r.channel_id and r.channel_name and r.status == "SUCCESS" and not r.channel_name.lower().startswith("error"):
+            if (r.channel_id and r.channel_id != "aiv_aggregator" and r.channel_name
+                    and r.status == "SUCCESS" and not r.channel_name.lower().startswith("error")):
                 try:
                     # Check if amazon_services table exists
                     cur = conn.execute(

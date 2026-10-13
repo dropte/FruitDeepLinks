@@ -209,6 +209,89 @@ class Amazon2HelpersTest(unittest.TestCase):
         )
         self.assertEqual((name, channel_id, reason), ("Peacock", "aiv_peacock", ""))
 
+    def test_blue_jackets_benefit_is_provider_not_trial_offer(self):
+        for entitlement in (
+            "Free trial of Blue Jackets Hockey Network",
+            "Included with your Blue Jackets Hockey Network subscription",
+            "Subscribe for $9.99/month",
+        ):
+            with self.subTest(entitlement=entitlement):
+                self.assertEqual(
+                    amazon2._normalize("nhlcolumbusbluejackets", entitlement),
+                    ("Blue Jackets Hockey Network", "aiv_blue_jackets_hockey_network", ""),
+                )
+
+        # If Amazon rotates the benefit ID, the scoped message still names the provider.
+        for entitlement in (
+            "Free trial of Blue Jackets Hockey Network",
+            "Included with your Blue Jackets Hockey Network subscription",
+        ):
+            with self.subTest(entitlement=entitlement):
+                name, service, reason = amazon2._normalize("new-benefit-id", entitlement)
+                self.assertEqual((name, service),
+                                 ("Blue Jackets Hockey Network", "aiv_blue_jackets_hockey_network"))
+                self.assertIn("inferred_from=entitlement", reason)
+        self.assertNotEqual(
+            amazon2._normalize("new-benefit-id", "Subscribe to Blue Jackets Hockey Network or Peacock")[1],
+            "aiv_blue_jackets_hockey_network",
+        )
+
+    def test_mountain_west_benefit_is_provider_not_trial_offer(self):
+        for entitlement in ("Free trial of MW+", "Included with your MW+ subscription"):
+            with self.subTest(entitlement=entitlement):
+                self.assertEqual(
+                    amazon2._normalize("mountainwestplus", entitlement),
+                    ("MW+", "aiv_mw_plus", ""),
+                )
+        for entitlement in ("Free trial of MW+", "Included with your MW+ subscription"):
+            with self.subTest(entitlement=entitlement):
+                name, service, reason = amazon2._normalize("new-benefit-id", entitlement)
+                self.assertEqual((name, service), ("MW+", "aiv_mw_plus"))
+                self.assertIn("inferred_from=entitlement", reason)
+        self.assertNotEqual(
+            amazon2._normalize("new-benefit-id", "Free trial of MWC Sports")[1],
+            "aiv_mw_plus",
+        )
+        self.assertNotEqual(
+            amazon2._normalize("new-benefit-id", "Subscribe to MW+ or DAZN")[1],
+            "aiv_mw_plus",
+        )
+
+    def test_bein_rotated_benefit_uses_observed_scoped_trial_message(self):
+        name, service, reason = amazon2._normalize(
+            "new-benefit-id", "Free trial of beIN SPORTS CONNECT"
+        )
+        self.assertEqual((name, service), ("beIN Sports Connect", "aiv_bein"))
+        self.assertIn("inferred_from=entitlement", reason)
+
+    def test_unknown_benefit_multi_provider_offer_is_ambiguous(self):
+        for entitlement in (
+            "Subscribe to Paramount+ or Peacock Premium Plus",
+            "Subscribe to ViX Premium or HBO Max",
+            "Subscribe to NBA League Pass or NBA TV",
+        ):
+            with self.subTest(entitlement=entitlement):
+                self.assertEqual(
+                    amazon2._normalize("rotated-benefit", entitlement)[1],
+                    "aiv_aggregator",
+                )
+        # The known ID is stronger than the alternative offers in the message.
+        self.assertEqual(
+            amazon2._normalize("cbsaacf", "Subscribe to Paramount+ or Peacock Premium Plus")[1],
+            "aiv_paramount_plus",
+        )
+
+    def test_unknown_benefit_generic_offer_does_not_claim_a_provider(self):
+        for entitlement in ("Join Prime", "Watch for free", "Subscribe for $11.99/month"):
+            with self.subTest(entitlement=entitlement):
+                self.assertEqual(
+                    amazon2._normalize("rotated-benefit", entitlement)[1],
+                    "aiv_aggregator",
+                )
+        self.assertEqual(amazon2._normalize("", "Join Prime")[1], "aiv_prime")
+        self.assertEqual(amazon2._normalize("", "Watch for free")[1], "aiv_free")
+        self.assertEqual(amazon2._normalize("daznus", "Join Prime")[1], "aiv_dazn")
+
     def test_normalize_can_infer_from_entitlement_when_benefit_unknown(self):
         name, channel_id, reason = amazon2._normalize(
             "unknown-benefit",
@@ -693,6 +776,33 @@ class Amazon2UpsertResultsTest(unittest.TestCase):
         self.assertEqual(n, 1)
         row = self._row("amzn1.dv.gti.aaaa")
         self.assertEqual(row["channel_id"], "aiv_dazn")
+
+    def test_ambiguous_offer_does_not_register_as_a_service(self):
+        import sqlite3
+
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""
+            CREATE TABLE amazon_services (
+                service_id TEXT PRIMARY KEY, display_name TEXT,
+                amazon_channel_id TEXT UNIQUE, logical_service TEXT, sort_order INTEGER
+            )
+        """)
+        conn.commit()
+        conn.close()
+        name, service, reason = amazon2._normalize(
+            "rotated-benefit", "Subscribe to Paramount+ or Peacock Premium Plus"
+        )
+        result = amazon2.ScrapeResult(
+            gti="amzn1.dv.gti.ambiguous", url="", status="SUCCESS",
+            channel_id=service, channel_name=name, benefit_id="rotated-benefit",
+            entitlement_text="Subscribe to Paramount+ or Peacock Premium Plus",
+            failure_reason=reason, elapsed_ms=1,
+        )
+        amazon2.upsert_results(self.db_path, [result])
+        self.assertEqual(self._row(result.gti)["channel_id"], "aiv_aggregator")
+        conn = sqlite3.connect(self.db_path)
+        self.assertEqual(conn.execute("SELECT count(*) FROM amazon_services").fetchone()[0], 0)
+        conn.close()
 
     def test_confirmed_unavailable_in_location_is_written(self):
         # Regression: this ERROR-status result must NOT be silently dropped -- it's a

@@ -38,6 +38,8 @@ import sqlite3
 import sys
 from typing import Dict, List, Optional, Tuple
 
+from core.service_catalog import get_canonical_service_code
+
 
 BROADCAST_RX = re.compile(r"broadcast=(amzn1\.dv\.gti\.[^&\s]+)", re.IGNORECASE)
 CONTENT_GTI_RX = re.compile(r"[?&]gti=(amzn1\.dv\.gti\.[a-f0-9-]{36})", re.IGNORECASE)
@@ -134,8 +136,10 @@ def normalize_service(channel_id: Optional[str], channel_name: Optional[str]) ->
 
     # If amazon_channels already provides a canonical aiv_* id, trust it (future-proof)
     cid_l = cid.lower()
-    if cid_l.startswith("aiv_") and cid_l not in {"aiv_aggregator"}:
+    if cid_l == "aiv_aggregator":
         return cid_l
+    if cid_l.startswith("aiv_"):
+        return get_canonical_service_code(cid_l)
 
     # Some scrapes yield Amazon internal identifiers like:
     # - amzn1.dv.channel.<uuid>
@@ -300,6 +304,23 @@ def migrate(db_path: str) -> int:
 
     # Update in a transaction
     conn.execute("BEGIN")
+
+    # Upgrade the legacy registry rows keyed by observed Amazon benefit IDs.
+    # Catalog aliases keep saved filters and older playable codes usable.
+    if cur.execute("SELECT 1 FROM sqlite_master WHERE type='table' AND name='amazon_services'").fetchone():
+        for benefit_id, old_code, new_code, display_name in (
+            ("nhlcolumbusbluejackets", "aiv_free_trial_of_blue_jackets_hockey_network",
+             "aiv_blue_jackets_hockey_network", "Amazon - Blue Jackets Hockey Network"),
+            ("mountainwestplus", "aiv_free_trial_of_mw", "aiv_mw_plus", "Amazon - MW+"),
+            ("beinus", "aiv_free_trial_of_bein_sports_connect",
+             "aiv_bein", "Amazon - beIN Sports Connect"),
+        ):
+            cur.execute("""
+                UPDATE amazon_services
+                SET service_id=?, logical_service=?, display_name=?, updated_utc=datetime('now')
+                WHERE amazon_channel_id=? AND service_id=?
+                  AND NOT EXISTS (SELECT 1 FROM amazon_services WHERE service_id=?)
+            """, (new_code, new_code, display_name, benefit_id, old_code, new_code))
 
     for r in plays:
         rowid = r["rowid"]
