@@ -2,7 +2,7 @@
 
 <img src="templates/logo.png" alt="FruitDeepLinks" width="320">
 
-**Universal Sports Streaming Aggregator — v2.3.2**
+**Universal Sports Streaming Aggregator — v2.3.4**
 
 FruitDeepLinks scrapes Apple TV's Sports aggregation API plus 10 regional services to build a unified sports EPG with deeplinks to 24+ streaming apps. Export M3U/XMLTV for Channels DVR, ADBTuner, CC4C, and PrismCast.
 
@@ -29,7 +29,15 @@ FruitDeepLinks creates virtual TV channels in Channels DVR with deeplinks that l
 
 ---
 
-## 🆕 What's New in v2.3.2
+## 🆕 What's New in v2.3.4
+
+### Amazon Provider Mapping
+
+- **Blue Jackets Hockey Network and MW+** — map their Amazon benefit IDs to stable service names instead of trial-offer labels
+- **Scoped offer fallback** — recognize their subscription messages and beIN's trial message while leaving ambiguous multi-feed offers unidentified
+- **JIC provider samples** — document observed channel-tier IDs for existing Amazon services; JIC remains an audit hint rather than an entitlement or live classification signal
+
+### Previously Added in v2.3.2
 
 ### Chromium Zombie Process Fix
 
